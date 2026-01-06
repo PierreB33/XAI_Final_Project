@@ -20,6 +20,28 @@ wheels/
 .installed.cfg
 *.egg
 
+# Frontend - TanStack/Vite
+frontend/node_modules/
+frontend/.DS_Store
+frontend/dist/
+frontend/dist-ssr/
+frontend/*.local
+frontend/.env
+frontend/.env.local
+frontend/.env.*.local
+frontend/.vite/
+frontend/coverage/
+frontend/.output/
+
+# Dependencies & Lock files (frontend)
+frontend/package-lock.json
+frontend/yarn.lock
+frontend/pnpm-lock.yaml
+
+# TanStack specific
+.tanstack/
+.wrangler/
+
 # Virtual Environments
 .venv/
 env/
@@ -36,7 +58,7 @@ ENV/
 .DS_Store
 
 # Project specific
-audio_dataset/
+datasets/
 results/
 models/weights/
 *.h5

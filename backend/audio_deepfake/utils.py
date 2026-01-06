@@ -181,7 +181,7 @@ class CompatibilityChecker:
         Returns:
             list: Méthodes compatibles
         """
-        from config import XAI_COMPATIBILITY
+        from .config import XAI_COMPATIBILITY
         return XAI_COMPATIBILITY.get(input_type, [])
     
     @staticmethod

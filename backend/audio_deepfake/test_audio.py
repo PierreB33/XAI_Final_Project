@@ -48,7 +48,6 @@ def test_detection(audio_path, model_type='mobilenet', weights_path=None):
         
     except Exception as e:
         print(f"❌ Erreur: {str(e)}")
-        return None
 
 
 def test_xai(audio_path, model, model_type='mobilenet', method='all'):

@@ -291,7 +291,7 @@ class SafeDeepfakeDetector:
         if not is_valid:
             raise ValueError(error)
         
-        from deepfake_detector import DeepfakeAudioDetector
+        from .deepfake_detector import DeepfakeAudioDetector
         self.detector = DeepfakeAudioDetector(model_type, weights_path)
     
     def predict_safe(self, audio_path):

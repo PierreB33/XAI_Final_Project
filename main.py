@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
-Pipeline complet de détection deepfake audio avec XAI
-Utilisation: python main.py <audio_file> [--model mobilenet] [--output ./results]
+Pipeline complet de détection deepfake audio + détection cancer poumon avec XAI
+Utilisation: 
+  - Audio: python main.py audio <audio_file> [--model mobilenet] [--output ./results]
+  - Image: python main.py image <image_file> <model_path> [--output ./results]
 """
 
 import sys
@@ -16,11 +18,21 @@ matplotlib.use('Agg')  # Mode non-interactif
 # Configuration du chemin
 sys.path.insert(0, str(Path(__file__).parent))
 
-from backend.deepfake_detector import DeepfakeAudioDetector
-from backend.xai_explainer import XAIExplainer
-from backend.validators import AudioValidator, SafeDeepfakeDetector
-from backend.utils import ExplanationVisualizer, PredictionReport
-from backend.spectrogram_converter import get_audio_info
+from backend.audio_deepfake.deepfake_detector import DeepfakeAudioDetector
+from backend.audio_deepfake.xai_explainer import XAIExplainer
+from backend.audio_deepfake.validators import AudioValidator, SafeDeepfakeDetector
+from backend.audio_deepfake.utils import ExplanationVisualizer, PredictionReport
+from backend.audio_deepfake.spectrogram_converter import get_audio_info
+
+# Imports pour lung cancer detection
+try:
+    from backend.lung_cancer import Predictor as LungCancerPredictor
+    from backend.lung_cancer import XAIExplainer as LungCancerXAIExplainer
+    from backend.lung_cancer import ResultVisualizer
+    LUNG_CANCER_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️  Mode lung cancer non disponible: {e}")
+    LUNG_CANCER_AVAILABLE = False
 
 
 def create_output_dir(output_dir):
@@ -210,40 +222,258 @@ def process_audio(audio_path, model_type='mobilenet', output_dir='./results'):
     return results
 
 
+def process_lung_cancer_image(image_path, output_dir='./results'):
+    """
+    Pipeline complète: prédiction → XAI → visualisation pour détection cancer poumon
+    Utilise les poids ImageNet pré-entraînés par défaut
+    """
+    
+    if not LUNG_CANCER_AVAILABLE:
+        print("❌ Erreur: Le module lung_cancer n'est pas disponible")
+        return None
+    
+    print("\n" + "="*70)
+    print("🫁 LUNG CANCER DETECTION PIPELINE")
+    print("="*70)
+    
+    results = {
+        'image_file': image_path,
+        'prediction': None,
+        'xai': {'gradcam': None, 'lime': None},
+        'files': {'prediction': None, 'gradcam': None, 'lime': None, 'report': None},
+        'report': ''
+    }
+    
+    # ÉTAPE 1: VALIDATION DU FICHIER IMAGE
+    print("\n[1/4] ✓ Validation du fichier image...")
+    if not os.path.exists(image_path):
+        print(f"      ✗ Erreur: Fichier non trouvé: {image_path}")
+        return results
+    print(f"      ✓ Fichier valide!")
+    
+    # ÉTAPE 2: CHARGEMENT DU MODÈLE
+    print("\n[2/4] ✓ Chargement du modèle avec poids ImageNet...")
+    try:
+        # Utiliser les poids ImageNet pré-entraînés par défaut
+        predictor = LungCancerPredictor(
+            model_path="",
+            use_default_weights=True
+        )
+        model_info = predictor.get_model_info()
+        print(f"      ✓ Modèle chargé: {model_info['model_type']}")
+        print(f"      ✓ Classes: {', '.join(model_info['class_names'])}")
+    except Exception as e:
+        print(f"      ✗ Erreur chargement modèle: {e}")
+        import traceback
+        traceback.print_exc()
+        return results
+    
+    # ÉTAPE 3: PRÉDICTION
+    print("\n[3/4] ✓ Prédiction avec modèle ResNet50...")
+    try:
+        results['prediction'] = predictor.predict(image_path)
+        print(f"      ✓ Classe prédite: {results['prediction']['predicted_class']}")
+        print(f"      ✓ Confiance: {results['prediction']['confidence']:.2%}")
+        print(f"      ✓ Probabilities:")
+        for class_name, prob in results['prediction']['probabilities'].items():
+            print(f"         - {class_name}: {prob:.4f} ({prob*100:.2f}%)")
+    except Exception as e:
+        print(f"      ✗ Erreur prédiction: {e}")
+        import traceback
+        traceback.print_exc()
+        return results
+    
+    # ÉTAPE 4: EXPLAINABILITÉ XAI
+    print("\n[4/4] ✓ Génération des explications XAI...")
+    try:
+        import torch
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        explainer = LungCancerXAIExplainer(predictor.model, device=device)
+        image_tensor = predictor.preprocessor.preprocess(image_path, device)
+        
+        # Grad-CAM
+        print(f"      Grad-CAM...", end='', flush=True)
+        try:
+            results['xai']['gradcam'] = explainer.gradcam.explain(
+                image_path,
+                image_tensor,
+                results['prediction']['predicted_class_idx']
+            )
+            print(" ✓")
+        except Exception as e:
+            print(f" ✗ ({str(e)[:50]})")
+        
+        # LIME
+        print(f"      LIME...", end='', flush=True)
+        try:
+            results['xai']['lime'] = explainer.lime.explain(
+                image_path,
+                results['prediction']['predicted_class_idx'],
+                num_samples=1000
+            )
+            print(" ✓")
+        except Exception as e:
+            print(f" ✗ ({str(e)[:50]})")
+    
+    except Exception as e:
+        print(f"      ⚠️  XAI non disponible: {e}")
+    
+    # Sauvegarder les résultats
+    output_dir = create_output_dir(output_dir)
+    
+    # Sauvegarder prédiction JSON
+    base_name = Path(image_path).stem
+    pred_file = os.path.join(output_dir, f"{base_name}_prediction.json")
+    with open(pred_file, 'w') as f:
+        json.dump(results['prediction'], f, indent=2)
+    results['files']['prediction'] = pred_file
+    
+    # Sauvegarder Grad-CAM
+    if results['xai']['gradcam']:
+        try:
+            gradcam_file = os.path.join(output_dir, f"{base_name}_gradcam.png")
+            plt.figure(figsize=(12, 5))
+            plt.imshow(results['xai']['gradcam']['overlay'])
+            plt.title(f"Grad-CAM - {results['prediction']['predicted_class']}")
+            plt.axis('off')
+            plt.tight_layout()
+            plt.savefig(gradcam_file, dpi=150, bbox_inches='tight')
+            plt.close()
+            results['files']['gradcam'] = gradcam_file
+        except Exception as e:
+            print(f"      ⚠️  Erreur sauvegarde Grad-CAM: {e}")
+    
+    # Sauvegarder LIME
+    if results['xai']['lime']:
+        try:
+            lime_file = os.path.join(output_dir, f"{base_name}_lime.png")
+            plt.figure(figsize=(12, 5))
+            plt.imshow(results['xai']['lime']['image'])
+            plt.title(f"LIME - Régions Importantes")
+            plt.axis('off')
+            plt.tight_layout()
+            plt.savefig(lime_file, dpi=150, bbox_inches='tight')
+            plt.close()
+            results['files']['lime'] = lime_file
+        except Exception as e:
+            print(f"      ⚠️  Erreur sauvegarde LIME: {e}")
+    
+    # Afficher résultats
+    print_lung_cancer_results(results)
+    
+    return results
+
+
+def print_lung_cancer_results(results):
+    """Afficher les résultats de la détection cancer poumon"""
+    print("\n" + "="*70)
+    print("📊 RÉSULTATS DE L'ANALYSE")
+    print("="*70)
+    
+    pred = results['prediction']
+    print(f"\n🖼️  Fichier image: {results['image_file']}")
+    
+    if pred:
+        print(f"\n✅ PRÉDICTION:")
+        print(f"   Classe: {pred['predicted_class']}")
+        print(f"   Confiance: {pred['confidence']:.2%}")
+        
+        print(f"\n   Probabilités par classe:")
+        for class_name, prob in pred['probabilities'].items():
+            print(f"      - {class_name}: {prob:.4f} ({prob*100:.2f}%)")
+    
+    print(f"\n🔍 EXPLAINABILITÉ XAI:")
+    for method in results['xai']:
+        if results['xai'][method]:
+            print(f"   ✓ {method.upper()}: Généré")
+        else:
+            print(f"   ✗ {method.upper()}: Échoué")
+    
+    print(f"\n💾 Fichiers générés:")
+    for file_type, file_path in results['files'].items():
+        if file_path:
+            print(f"   ✓ {file_type}: {file_path}")
+    
+    print("\n" + "="*70)
+
+
 def main():
     """Point d'entrée principal"""
     parser = argparse.ArgumentParser(
-        description='Pipeline de détection deepfake audio avec XAI',
+        description='Pipeline de détection deepfake audio + cancer poumon avec XAI',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Exemples:
-  python main.py audio.wav
-  python main.py audio.wav --model vgg16
-  python main.py audio.wav --model resnet50 --output ./mon_dossier
+  # Détection deepfake audio
+  python main.py audio audio.wav
+  python main.py audio audio.wav --model vgg16
+  python main.py audio audio.wav --model resnet50 --output ./mon_dossier
+  
+  # Détection cancer poumon
+  python main.py image scan.png model.pth
+  python main.py image scan.png model.pth --output ./mon_dossier
         """
     )
     
-    parser.add_argument('audio', 
-                       help='Chemin vers le fichier audio (.wav, .mp3, .ogg, .flac)')
-    parser.add_argument('--model', 
-                       choices=['mobilenet', 'vgg16', 'resnet50'],
-                       default='mobilenet',
-                       help='Modèle à utiliser (default: mobilenet)')
-    parser.add_argument('--output', 
-                       default='./results',
-                       help='Dossier de sortie (default: ./results)')
+    subparsers = parser.add_subparsers(dest='mode', help='Mode de détection')
+    
+    # Sous-parseur pour audio
+    audio_parser = subparsers.add_parser('audio', help='Détection deepfake audio')
+    audio_parser.add_argument('audio', 
+                             help='Chemin vers le fichier audio (.wav, .mp3, .ogg, .flac)')
+    audio_parser.add_argument('--model', 
+                             choices=['mobilenet', 'vgg16', 'resnet50'],
+                             default='mobilenet',
+                             help='Modèle à utiliser (default: mobilenet)')
+    audio_parser.add_argument('--output', 
+                             default='./results',
+                             help='Dossier de sortie (default: ./results)')
+    
+    # Sous-parseur pour image
+    image_parser = subparsers.add_parser('image', help='Détection cancer poumon')
+    image_parser.add_argument('image', 
+                             help='Chemin vers le fichier image (jpg, png, etc.)')
+    image_parser.add_argument('--output', 
+                             default='./results',
+                             help='Dossier de sortie (default: ./results)')
     
     args = parser.parse_args()
     
-    # Vérifier le fichier
-    if not os.path.exists(args.audio):
-        print(f"\n❌ Erreur: Fichier non trouvé: {args.audio}")
-        sys.exit(1)
+    # Mode par défaut: audio (compatibilité arrière)
+    if not args.mode:
+        if len(sys.argv) > 1 and not sys.argv[1] in ['audio', 'image']:
+            args.mode = 'audio'
+            args.audio = sys.argv[1]
+            if len(sys.argv) > 2:
+                args.model = sys.argv[2]
+            if '--output' in sys.argv:
+                idx = sys.argv.index('--output')
+                args.output = sys.argv[idx + 1]
+        else:
+            parser.print_help()
+            sys.exit(1)
     
-    # Exécuter la pipeline
     try:
-        results = process_audio(args.audio, args.model, args.output)
-        sys.exit(0)
+        if args.mode == 'audio':
+            # Vérifier le fichier audio
+            if not os.path.exists(args.audio):
+                print(f"\n❌ Erreur: Fichier non trouvé: {args.audio}")
+                sys.exit(1)
+            
+            # Exécuter la pipeline audio
+            results = process_audio(args.audio, args.model, args.output)
+            sys.exit(0)
+        
+        elif args.mode == 'image':
+            # Vérifier le fichier image
+            if not os.path.exists(args.image):
+                print(f"\n❌ Erreur: Fichier image non trouvé: {args.image}")
+                sys.exit(1)
+            
+            # Exécuter la pipeline image
+            results = process_lung_cancer_image(args.image, args.output)
+            sys.exit(0)
+    
     except KeyboardInterrupt:
         print("\n\n⚠️  Interruption par l'utilisateur")
         sys.exit(1)

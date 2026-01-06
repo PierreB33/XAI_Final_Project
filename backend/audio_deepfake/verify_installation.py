@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Script de vérification : Teste que tous les imports et structures fonctionnent
-Exécutez: python backend/verify_installation.py
+Exécutez: python backend/audio_deepfake/verify_installation.py
 """
 
 import sys
@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 
 # Ajouter le backend au path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 def check_imports():
     """Vérifier que tous les imports fonctionnent"""
@@ -56,69 +56,12 @@ def check_backend_modules():
     failed = []
     for module_name, class_or_func in modules:
         try:
-            module = __import__(f"backend.{module_name}", fromlist=[class_or_func])
+            module = __import__(f"backend.audio_deepfake.{module_name}", fromlist=[class_or_func])
             getattr(module, class_or_func)
-            print(f"  ✅ backend.{module_name}.{class_or_func}")
+            print(f"  ✅ backend.audio_deepfake.{module_name}.{class_or_func}")
         except (ImportError, AttributeError) as e:
-            print(f"  ❌ backend.{module_name}.{class_or_func}: {str(e)}")
+            print(f"  ❌ backend.audio_deepfake.{module_name}.{class_or_func}: {str(e)}")
             failed.append(f"{module_name}.{class_or_func}")
-    
-    return len(failed) == 0, failed
-
-
-def check_file_structure():
-    """Vérifier la structure des fichiers"""
-    print("\n🔍 Vérification de la structure des fichiers...\n")
-    
-    backend_path = Path(__file__).parent
-    expected_files = [
-        "audio_models.py",
-        "deepfake_detector.py",
-        "xai_explainer.py",
-        "spectrogram_converter.py",
-        "config.py",
-        "utils.py",
-        "validators.py",
-        "test_audio.py",
-        "examples.py",
-        "__init__.py",
-        "requirements.txt",
-        "README_AUDIO.md",
-    ]
-    
-    failed = []
-    for filename in expected_files:
-        filepath = backend_path / filename
-        if filepath.exists():
-            size = filepath.stat().st_size
-            print(f"  ✅ {filename} ({size:,} bytes)")
-        else:
-            print(f"  ❌ {filename} - MISSING")
-            failed.append(filename)
-    
-    return len(failed) == 0, failed
-
-
-def check_root_files():
-    """Vérifier les fichiers root"""
-    print("\n🔍 Vérification des fichiers root...\n")
-    
-    root_path = Path(__file__).parent.parent
-    expected_files = [
-        "IMPLEMENTATION_SUMMARY.md",
-        "QUICKSTART.md",
-        "FILES_CREATED.md",
-    ]
-    
-    failed = []
-    for filename in expected_files:
-        filepath = root_path / filename
-        if filepath.exists():
-            size = filepath.stat().st_size
-            print(f"  ✅ {filename} ({size:,} bytes)")
-        else:
-            print(f"  ❌ {filename} - MISSING")
-            failed.append(filename)
     
     return len(failed) == 0, failed
 
@@ -128,7 +71,7 @@ def check_configuration():
     print("\n🔍 Vérification de la configuration...\n")
     
     try:
-        from backend.config import (
+        from backend.audio_deepfake.config import (
             AUDIO_MODELS, XAI_METHODS, CLASS_MAPPING, 
             MODEL_INPUT, AUDIO_PREPROCESSING
         )
@@ -149,7 +92,7 @@ def check_model_creation():
     print("\n🔍 Vérification de la création des modèles...\n")
     
     try:
-        from backend.audio_models import (
+        from backend.audio_deepfake.audio_models import (
             build_mobilenet_model, 
             build_vgg16_model, 
             build_resnet_model
@@ -191,12 +134,6 @@ def main():
     success, failed = check_backend_modules()
     results.append(("Modules backend", success, failed))
     
-    success, failed = check_file_structure()
-    results.append(("Structure fichiers backend", success, failed))
-    
-    success, failed = check_root_files()
-    results.append(("Fichiers root", success, failed))
-    
     success, failed = check_configuration()
     results.append(("Configuration", success, failed))
     
@@ -222,14 +159,13 @@ def main():
         print("✅ TOUTES LES VÉRIFICATIONS SONT PASSÉES!")
         print("\nProchaines étapes:")
         print("  1. Télécharger les poids pré-entraînés")
-        print("  2. Remplir les chemins dans backend/config.py")
-        print("  3. Tester avec un fichier audio: python backend/test_audio.py")
-        print("  4. Consulter QUICKSTART.md pour l'usage")
+        print("  2. Remplir les chemins dans backend/audio_deepfake/config.py")
+        print("  3. Tester avec un fichier audio: python backend/audio_deepfake/test_audio.py")
         return 0
     else:
         print("❌ CERTAINES VÉRIFICATIONS ONT ÉCHOUÉ")
         print("\nRéinstallez les dépendances:")
-        print("  pip install -r backend/requirements.txt")
+        print("  pip install -r requirements.txt")
         return 1
 
 
