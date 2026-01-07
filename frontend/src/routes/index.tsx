@@ -291,31 +291,6 @@ function XAIAnalysis() {
                     </p>
                   </div>
 
-                  {Object.keys(results.xai_results).length > 0 && (
-                    <div className="space-y-3">
-                      <p className="text-sm font-semibold text-slate-900 dark:text-slate-50">
-                        Explanations:
-                      </p>
-                      {Object.entries(results.xai_results).map(([key, value]: [string, any]) => (
-                        <div
-                          key={key}
-                          className="p-3 bg-slate-100 dark:bg-slate-700 rounded-lg border border-slate-200 dark:border-slate-600"
-                        >
-                          <p className="text-sm font-semibold text-slate-900 dark:text-slate-50 capitalize">
-                            {key}
-                          </p>
-                          {value.error ? (
-                            <p className="text-xs text-red-600 dark:text-red-400 mt-1">{value.error}</p>
-                          ) : (
-                            <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
-                              {value.visualization || value.explanation || 'Explanation generated'}
-                            </p>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
                   <button
                     onClick={handleNewAnalysis}
                     className="w-full text-blue-600 dark:text-blue-400 font-semibold py-2 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-950 transition-colors"
@@ -327,6 +302,54 @@ function XAIAnalysis() {
             </div>
           </div>
         </div>
+
+        {/* XAI Visualizations */}
+        {results && Object.keys(results.xai_results).length > 0 && (
+          <div className="mt-12">
+            <h2 className="text-3xl font-bold text-slate-900 dark:text-slate-50 mb-6">
+              Explainability Results
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {Object.entries(results.xai_results).map(([key, value]: [string, any]) => (
+                <div
+                  key={key}
+                  className="bg-white dark:bg-slate-800 rounded-lg shadow-sm overflow-hidden border border-slate-200 dark:border-slate-700"
+                >
+                  <div className="bg-gradient-to-r from-blue-500 to-purple-600 px-6 py-4">
+                    <h3 className="text-lg font-bold text-white capitalize">{key}</h3>
+                  </div>
+                  <div className="p-6">
+                    {value.error ? (
+                      <div className="p-4 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-900 rounded-lg">
+                        <p className="text-sm text-red-600 dark:text-red-400">{value.error}</p>
+                      </div>
+                    ) : value.image ? (
+                      <div className="space-y-3">
+                        <img
+                          src={value.image}
+                          alt={`${key} explanation`}
+                          className="w-full rounded-lg border border-slate-200 dark:border-slate-700"
+                        />
+                        <div className="text-xs text-slate-600 dark:text-slate-400 space-y-1">
+                          {value.type && <p><span className="font-semibold">Method:</span> {value.type}</p>}
+                          {value.num_samples && <p><span className="font-semibold">Samples:</span> {value.num_samples}</p>}
+                          {value.layer && <p><span className="font-semibold">Layer:</span> {value.layer}</p>}
+                          {value.top_label !== undefined && <p><span className="font-semibold">Label:</span> {value.top_label}</p>}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="p-4 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-900 rounded-lg">
+                        <p className="text-sm text-blue-600 dark:text-blue-400">
+                          {value.explanation || 'Explanation generated successfully'}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

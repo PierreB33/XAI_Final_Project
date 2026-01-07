@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
 FastAPI REST pour la plateforme XAI - Connexion Backend/Frontend
 Endpoints pour audio deepfake detection et lung cancer detection avec XAI
@@ -13,6 +13,11 @@ from pathlib import Path
 import tempfile
 from typing import List, Optional
 import traceback
+import base64
+import cv2
+import numpy as np
+from io import BytesIO
+from PIL import Image
 
 # Configuration du logging
 logging.basicConfig(level=logging.INFO)
@@ -31,6 +36,62 @@ LungCancerXAIExplainer = None
 AUDIO_AVAILABLE = False
 LUNG_CANCER_AVAILABLE = False
 
+def image_to_base64(image_array: np.ndarray) -> str:
+    """
+    Convertir une image numpy en string Base64
+    
+    Args:
+        image_array (np.ndarray): Image numpy (BGR ou RGB)
+        
+    Returns:
+        str: Image en Base64 string
+    """
+    if image_array is None:
+        return None
+    
+    try:
+        # S'assurer que c'est un uint8
+        if image_array.dtype != np.uint8:
+            image_array = (image_array * 255).astype(np.uint8)
+        
+        # Convertir BGR en RGB si nécessaire (OpenCV utilise BGR)
+        if len(image_array.shape) == 3 and image_array.shape[2] == 3:
+            image_array = cv2.cvtColor(image_array, cv2.COLOR_BGR2RGB)
+        
+        # Encoder en PNG
+        _, buffer = cv2.imencode('.png', image_array)
+        image_b64 = base64.b64encode(buffer).decode('utf-8')
+        
+        return f"data:image/png;base64,{image_b64}"
+    except Exception as e:
+        logger.warning(f"  Failed to convert image to base64: {e}")
+        return None
+
+def convert_numpy_types(obj):
+    """
+    Convertir les types numpy en types Python natifs pour la sérialisation JSON
+    
+    Args:
+        obj: Objet à convertir (peut être dict, list, numpy type, etc.)
+        
+    Returns:
+        Objet converti avec types Python natifs
+    """
+    if isinstance(obj, dict):
+        return {k: convert_numpy_types(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_numpy_types(item) for item in obj]
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, (np.integer, np.int64, np.int32)):
+        return int(obj)
+    elif isinstance(obj, (np.floating, np.float64, np.float32)):
+        return float(obj)
+    elif isinstance(obj, np.bool_):
+        return bool(obj)
+    else:
+        return obj
+
 def load_audio_modules():
     """Lazy load audio modules"""
     global DeepfakeAudioDetector, XAIExplainer, AudioValidator, AUDIO_AVAILABLE
@@ -46,9 +107,9 @@ def load_audio_modules():
         XAIExplainer = XAI
         AudioValidator = AV
         AUDIO_AVAILABLE = True
-        logger.info("✅ Audio modules loaded")
+        logger.info(" Audio modules loaded")
     except Exception as e:
-        logger.error(f"❌ Audio module not available: {e}")
+        logger.error(f" Audio module not available: {e}")
         AUDIO_AVAILABLE = False
 
 def load_lung_cancer_modules():
@@ -64,9 +125,9 @@ def load_lung_cancer_modules():
         LungCancerPredictor = LCP
         LungCancerXAIExplainer = LCXAI
         LUNG_CANCER_AVAILABLE = True
-        logger.info("✅ Lung cancer modules loaded")
+        logger.info(" Lung cancer modules loaded")
     except Exception as e:
-        logger.warning(f"⚠️  Lung cancer module not available: {e}")
+        logger.warning(f"  Lung cancer module not available: {e}")
         LUNG_CANCER_AVAILABLE = False
 
 # Configuration FastAPI
@@ -118,14 +179,12 @@ async def get_models():
             {'id': 'deepfake-vgg16', 'name': 'VGG16', 'type': 'audio'},
             {'id': 'deepfake-resnet', 'name': 'ResNet', 'type': 'audio'},
         ],
-        'image': []
-    }
-    
-    if LUNG_CANCER_AVAILABLE:
-        models['image'] = [
+        'image': [
             {'id': 'lung-resnet50', 'name': 'ResNet50', 'type': 'image'},
         ]
+    }
     
+    logger.info(f"  Models returned - LUNG_CANCER_AVAILABLE: {LUNG_CANCER_AVAILABLE}")
     return models
 
 
@@ -148,13 +207,13 @@ async def analyze_audio(
     xai_methods: List[str] = Form(default=[])
 ):
     """Analyser un fichier audio pour deepfake detection"""
-    logger.info(f"🎵 Audio analysis request: model={model}, xai_methods={xai_methods}")
+    logger.info(f" Audio analysis request: model={model}, xai_methods={xai_methods}")
     
     # Load modules on demand
     load_audio_modules()
     
     if not AUDIO_AVAILABLE:
-        logger.error("❌ Audio module not available")
+        logger.error(" Audio module not available")
         raise HTTPException(status_code=503, detail="Audio analysis not available")
     
     temp_path = None
@@ -163,7 +222,7 @@ async def analyze_audio(
         if not file.filename:
             raise HTTPException(status_code=400, detail="No file selected")
         
-        logger.info(f"📁 File: {file.filename}, Type: {file.content_type}")
+        logger.info(f" File: {file.filename}, Type: {file.content_type}")
         
         if not allowed_file(file.filename, ALLOWED_AUDIO):
             raise HTTPException(
@@ -180,9 +239,9 @@ async def analyze_audio(
                 'deepfake-resnet': 'resnet50'
             }
             model_type = model_map.get(model, model.split('-')[1])
-            logger.info(f"🤖 Model type: {model_type}")
+            logger.info(f" Model type: {model_type}")
         except Exception as e:
-            logger.error(f"❌ Invalid model format: {model}")
+            logger.error(f" Invalid model format: {model}")
             raise HTTPException(status_code=400, detail=f"Invalid model format: {model}")
         
         # Sauvegarder le fichier temporairement
@@ -191,42 +250,42 @@ async def analyze_audio(
             with open(temp_path, 'wb') as f:
                 content = await file.read()
                 f.write(content)
-            logger.info(f"💾 File saved to: {temp_path}")
+            logger.info(f" File saved to: {temp_path}")
         except Exception as e:
-            logger.error(f"❌ Failed to save file: {e}")
+            logger.error(f" Failed to save file: {e}")
             raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
         
         # Valider l'audio
         try:
             is_valid, validation_msg = AudioValidator.validate_file(temp_path)
             if not is_valid:
-                logger.error(f"❌ Invalid audio: {validation_msg}")
+                logger.error(f" Invalid audio: {validation_msg}")
                 raise HTTPException(status_code=400, detail=f"Invalid audio: {validation_msg}")
-            logger.info(f"✅ Audio validation passed")
+            logger.info(f" Audio validation passed")
         except HTTPException:
             raise
         except Exception as e:
-            logger.error(f"❌ Validation error: {e}")
+            logger.error(f" Validation error: {e}")
             raise HTTPException(status_code=400, detail=f"Audio validation error: {str(e)}")
         
         # Charger le détecteur
         try:
-            logger.info(f"🔧 Loading detector: {model_type}")
+            logger.info(f" Loading detector: {model_type}")
             detector = DeepfakeAudioDetector(model_type=model_type)
-            logger.info(f"✅ Detector loaded")
+            logger.info(f" Detector loaded")
         except Exception as e:
-            logger.error(f"❌ Failed to load detector: {e}\n{traceback.format_exc()}")
+            logger.error(f" Failed to load detector: {e}\n{traceback.format_exc()}")
             raise HTTPException(status_code=500, detail=f"Failed to load model: {str(e)}")
         
         # Prédiction
         try:
-            logger.info(f"🔍 Running prediction...")
+            logger.info(f" Running prediction...")
             prediction = detector.predict(temp_path)
             confidence = float(prediction['confidence'])
             prediction_label = prediction['predicted_label']
-            logger.info(f"✅ Prediction: {prediction_label} ({confidence:.2%})")
+            logger.info(f" Prediction: {prediction_label} ({confidence:.2%})")
         except Exception as e:
-            logger.error(f"❌ Prediction error: {e}\n{traceback.format_exc()}")
+            logger.error(f" Prediction error: {e}\n{traceback.format_exc()}")
             raise HTTPException(status_code=500, detail=f"Prediction error: {str(e)}")
         
         # Préparer la réponse
@@ -243,7 +302,7 @@ async def analyze_audio(
         
         # XAI Explainability (si demandé)
         if xai_methods:
-            logger.info(f"🧠 Computing XAI explanations: {xai_methods}")
+            logger.info(f" Computing XAI explanations: {xai_methods}")
             try:
                 explainer = XAIExplainer(detector)
                 
@@ -252,60 +311,96 @@ async def analyze_audio(
                         try:
                             logger.info(f"  - Computing LIME...")
                             lime_result = explainer.lime_explanation(temp_path)
-                            result['xai_results']['lime'] = {
-                                'type': 'lime',
-                                'explanation': 'LIME explanation generated'
-                            }
-                            logger.info(f"  ✅ LIME done")
+                            if lime_result and 'highlighted_image' in lime_result:
+                                image_b64 = image_to_base64(lime_result['highlighted_image'])
+                                result['xai_results']['lime'] = {
+                                    'type': 'lime',
+                                    'image': image_b64,
+                                    'num_samples': lime_result.get('num_samples', 1000)
+                                }
+                            else:
+                                result['xai_results']['lime'] = {'error': 'Failed to generate LIME visualization'}
+                            logger.info(f"   LIME done")
                         except Exception as e:
-                            logger.warning(f"  ⚠️  LIME error: {e}")
+                            logger.warning(f"    LIME error: {e}")
                             result['xai_results']['lime'] = {'error': str(e)}
                     
                     elif method == 'gradcam':
                         try:
                             logger.info(f"  - Computing Grad-CAM...")
                             gradcam_result = explainer.grad_cam(temp_path)
-                            result['xai_results']['gradcam'] = {
-                                'type': 'gradcam',
-                                'visualization': 'Grad-CAM heatmap generated'
-                            }
-                            logger.info(f"  ✅ Grad-CAM done")
+                            if gradcam_result and 'superposed_image' in gradcam_result:
+                                image_b64 = image_to_base64(gradcam_result['superposed_image'])
+                                result['xai_results']['gradcam'] = {
+                                    'type': 'gradcam',
+                                    'image': image_b64,
+                                    'layer': gradcam_result.get('layer', 'auto')
+                                }
+                            else:
+                                result['xai_results']['gradcam'] = {'error': 'Failed to generate Grad-CAM visualization'}
+                            logger.info(f"   Grad-CAM done")
                         except Exception as e:
-                            logger.warning(f"  ⚠️  Grad-CAM error: {e}")
+                            logger.warning(f"    Grad-CAM error: {e}")
                             result['xai_results']['gradcam'] = {'error': str(e)}
                     
                     elif method == 'shap':
                         try:
                             logger.info(f"  - Computing SHAP...")
                             shap_result = explainer.shap_explanation(temp_path)
-                            result['xai_results']['shap'] = {
-                                'type': 'shap',
-                                'explanation': 'SHAP explanation generated'
-                            }
-                            logger.info(f"  ✅ SHAP done")
+                            logger.info(f"    SHAP result keys: {shap_result.keys() if shap_result else 'None'}")
+                            # Extraire l'image de visualisation si disponible
+                            if shap_result and shap_result.get('visualization') is not None:
+                                logger.info(f"    SHAP visualization shape: {shap_result['visualization'].shape}")
+                                image_b64 = image_to_base64(shap_result['visualization'])
+                                if image_b64:
+                                    logger.info(f"    SHAP image converted to base64, length: {len(image_b64)}")
+                                    result['xai_results']['shap'] = {
+                                        'type': 'shap',
+                                        'image': image_b64,
+                                        'num_features': shap_result.get('num_features', 0)
+                                    }
+                                else:
+                                    logger.warning(f"    Failed to convert SHAP visualization to base64")
+                                    result['xai_results']['shap'] = {
+                                        'type': 'shap',
+                                        'explanation': 'SHAP explanation generated',
+                                        'num_features': shap_result.get('num_features', 0)
+                                    }
+                            else:
+                                logger.warning(f"    SHAP visualization is None or not present")
+                                result['xai_results']['shap'] = {
+                                    'type': 'shap',
+                                    'explanation': 'SHAP explanation generated',
+                                    'num_features': shap_result.get('num_features', 0) if shap_result else 0
+                                }
+                            logger.info(f"   SHAP done")
                         except Exception as e:
-                            logger.warning(f"  ⚠️  SHAP error: {e}")
+                            logger.warning(f"    SHAP error: {e}")
+                            import traceback
+                            logger.warning(f"    SHAP traceback: {traceback.format_exc()}")
                             result['xai_results']['shap'] = {'error': str(e)}
             except Exception as e:
-                logger.warning(f"⚠️  XAI error: {e}")
+                logger.warning(f"  XAI error: {e}")
                 result['xai_results']['error'] = str(e)
         
-        logger.info(f"✅ Analysis complete")
+        logger.info(f" Analysis complete")
+        # Convertir les types numpy avant de retourner
+        result = convert_numpy_types(result)
         return result
     
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Unexpected error: {e}\n{traceback.format_exc()}")
+        logger.error(f" Unexpected error: {e}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Processing error: {str(e)}")
     finally:
         # Nettoyer
         if temp_path and os.path.exists(temp_path):
             try:
                 os.remove(temp_path)
-                logger.info(f"🗑️  Cleaned up {temp_path}")
+                logger.info(f"  Cleaned up {temp_path}")
             except Exception as e:
-                logger.warning(f"⚠️  Failed to clean up {temp_path}: {e}")
+                logger.warning(f"  Failed to clean up {temp_path}: {e}")
 
 
 @app.post("/api/analyze/image")
@@ -316,13 +411,13 @@ async def analyze_image(
     model_path: Optional[str] = Form(None)
 ):
     """Analyser une image pour lung cancer detection"""
-    logger.info(f"🖼️  Image analysis request: model={model}, xai_methods={xai_methods}")
+    logger.info(f"  Image analysis request: model={model}, xai_methods={xai_methods}")
     
     # Load modules on demand
     load_lung_cancer_modules()
     
     if not LUNG_CANCER_AVAILABLE:
-        logger.error("❌ Lung cancer module not available")
+        logger.error(" Lung cancer module not available")
         raise HTTPException(status_code=503, detail="Lung cancer detection not available")
     
     temp_path = None
@@ -331,7 +426,7 @@ async def analyze_image(
         if not file.filename:
             raise HTTPException(status_code=400, detail="No file selected")
         
-        logger.info(f"📁 File: {file.filename}, Type: {file.content_type}")
+        logger.info(f" File: {file.filename}, Type: {file.content_type}")
         
         if not allowed_file(file.filename, ALLOWED_IMAGE):
             raise HTTPException(
@@ -345,32 +440,32 @@ async def analyze_image(
             with open(temp_path, 'wb') as f:
                 content = await file.read()
                 f.write(content)
-            logger.info(f"💾 File saved to: {temp_path}")
+            logger.info(f" File saved to: {temp_path}")
         except Exception as e:
-            logger.error(f"❌ Failed to save file: {e}")
+            logger.error(f" Failed to save file: {e}")
             raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
         
         # Charger le prédicteur
         try:
-            logger.info(f"🔧 Loading predictor...")
+            logger.info(f" Loading predictor...")
             predictor = LungCancerPredictor(
                 model_path=model_path,
                 use_default_weights=model_path is None
             )
-            logger.info(f"✅ Predictor loaded")
+            logger.info(f" Predictor loaded")
         except Exception as e:
-            logger.error(f"❌ Failed to load predictor: {e}\n{traceback.format_exc()}")
+            logger.error(f" Failed to load predictor: {e}\n{traceback.format_exc()}")
             raise HTTPException(status_code=500, detail=f"Failed to load model: {str(e)}")
         
         # Prédiction
         try:
-            logger.info(f"🔍 Running prediction...")
+            logger.info(f" Running prediction...")
             prediction = predictor.predict(temp_path)
             confidence = float(prediction['confidence'])
             predicted_class = prediction['predicted_class']
-            logger.info(f"✅ Prediction: {predicted_class} ({confidence:.2%})")
+            logger.info(f" Prediction: {predicted_class} ({confidence:.2%})")
         except Exception as e:
-            logger.error(f"❌ Prediction error: {e}\n{traceback.format_exc()}")
+            logger.error(f" Prediction error: {e}\n{traceback.format_exc()}")
             raise HTTPException(status_code=500, detail=f"Prediction error: {str(e)}")
         
         # Préparer la réponse
@@ -384,7 +479,7 @@ async def analyze_image(
         
         # XAI Explainability (si demandé)
         if xai_methods:
-            logger.info(f"🧠 Computing XAI explanations: {xai_methods}")
+            logger.info(f" Computing XAI explanations: {xai_methods}")
             try:
                 xai_explainer = LungCancerXAIExplainer(predictor.model, predictor.device)
                 # Preprocess image for XAI
@@ -394,58 +489,76 @@ async def analyze_image(
                     if method == 'gradcam':
                         try:
                             logger.info(f"  - Computing Grad-CAM...")
-                            gradcam_result = xai_explainer.gradcam.generate_heatmap(image_data, 0)
-                            result['xai_results']['gradcam'] = {
-                                'type': 'gradcam',
-                                'visualization': 'Grad-CAM heatmap generated'
-                            }
-                            logger.info(f"  ✅ Grad-CAM done")
+                            gradcam_result = xai_explainer.gradcam.explain(temp_path, image_data, 0)
+                            if gradcam_result and 'overlay' in gradcam_result:
+                                image_b64 = image_to_base64(gradcam_result['overlay'])
+                                result['xai_results']['gradcam'] = {
+                                    'type': 'gradcam',
+                                    'image': image_b64
+                                }
+                            else:
+                                result['xai_results']['gradcam'] = {'error': 'Failed to generate Grad-CAM visualization'}
+                            logger.info(f"   Grad-CAM done")
                         except Exception as e:
-                            logger.warning(f"  ⚠️  Grad-CAM error: {e}")
+                            logger.warning(f"    Grad-CAM error: {e}")
                             result['xai_results']['gradcam'] = {'error': str(e)}
                     
                     elif method == 'lime':
                         try:
                             logger.info(f"  - Computing LIME...")
                             lime_result = xai_explainer.lime.explain(temp_path, 0)
-                            result['xai_results']['lime'] = {
-                                'type': 'lime',
-                                'explanation': 'LIME explanation generated'
-                            }
-                            logger.info(f"  ✅ LIME done")
+                            if lime_result and 'overlay' in lime_result and lime_result['overlay'] is not None:
+                                image_b64 = image_to_base64(lime_result['overlay'])
+                                result['xai_results']['lime'] = {
+                                    'type': 'lime',
+                                    'image': image_b64,
+                                    'top_label': lime_result.get('top_label', 0)
+                                }
+                            else:
+                                result['xai_results']['lime'] = {'error': 'Failed to generate LIME visualization'}
+                            logger.info(f"   LIME done")
                         except Exception as e:
-                            logger.warning(f"  ⚠️  LIME error: {e}")
+                            logger.warning(f"    LIME error: {e}")
                             result['xai_results']['lime'] = {'error': str(e)}
                     
                     elif method == 'shap':
                         try:
                             logger.info(f"  - Computing SHAP...")
-                            # SHAP is not available for image in this implementation
-                            logger.info(f"  ⚠️  SHAP not available for image analysis")
-                            result['xai_results']['shap'] = {'error': 'SHAP not available for image analysis'}
+                            shap_result = xai_explainer.shap.explain(temp_path, image_data, 0)
+                            if shap_result and 'overlay' in shap_result:
+                                image_b64 = image_to_base64(shap_result['overlay'])
+                                result['xai_results']['shap'] = {
+                                    'type': 'shap',
+                                    'image': image_b64
+                                }
+                            else:
+                                result['xai_results']['shap'] = {'error': 'Failed to generate SHAP visualization'}
+                            logger.info(f"   SHAP done")
                         except Exception as e:
-                            logger.warning(f"  ⚠️  SHAP error: {e}")
+                            logger.warning(f"    SHAP error: {e}")
                             result['xai_results']['shap'] = {'error': str(e)}
             except Exception as e:
-                logger.warning(f"⚠️  XAI error: {e}")
+                logger.warning(f"  XAI error: {e}")
                 result['xai_results']['error'] = str(e)
         
-        logger.info(f"✅ Analysis complete")
+        logger.info(f" Analysis complete")
+        # Convertir les types numpy avant de retourner
+        result = convert_numpy_types(result)
         return result
     
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Unexpected error: {e}\n{traceback.format_exc()}")
+        logger.error(f" Unexpected error: {e}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Processing error: {str(e)}")
     finally:
         # Nettoyer
         if temp_path and os.path.exists(temp_path):
             try:
                 os.remove(temp_path)
-                logger.info(f"🗑️  Cleaned up {temp_path}")
+                logger.info(f"  Cleaned up {temp_path}")
             except Exception as e:
-                logger.warning(f"⚠️  Failed to clean up {temp_path}: {e}")
+                logger.warning(f"  Failed to clean up {temp_path}: {e}")
 
 
 @app.get("/")
@@ -456,10 +569,10 @@ async def root():
 
 if __name__ == '__main__':
     import uvicorn
-    print("🚀 XAI Platform API Server")
-    print(f"Audio Deepfake Detection: ✅")
-    print(f"Lung Cancer Detection: {'✅' if LUNG_CANCER_AVAILABLE else '❌'}")
-    print("Starting server on http://localhost:5000")
-    print("Documentation available at http://localhost:5000/docs")
+    print("[API] XAI Platform API Server")
+    print("[API] Audio Deepfake Detection: Available")
+    print(f"[API] Lung Cancer Detection: {'Available' if LUNG_CANCER_AVAILABLE else 'Not Available'}")
+    print("[API] Starting server on http://localhost:5000")
+    print("[API] Documentation available at http://localhost:5000/docs")
     uvicorn.run(app, host='0.0.0.0', port=5000)
 
