@@ -1,7 +1,12 @@
 # XAI FINAL PROJECT
 
+
 ## Introduction et contexte
-Plateforme unifiée d’Explainable AI combinant deux cas d’usage : détection de deepfake audio et classification de radiographies thoraciques (cancer du poumon). L’objectif est d’offrir, via une interface unique, le chargement de médias (audio/image), le choix d’un modèle adapté et la génération d’explications XAI comparables.
+Cette plateforme unifie deux verticales existantes d’Explainable AI : (1) détection de deepfake audio à partir de spectrogrammes et (2) détection de cancer du poumon sur radiographies thoraciques. Elle propose une interface unique pour déposer un média (audio/image), sélectionner un modèle compatible, choisir une ou plusieurs méthodes d’explicabilité (LIME, Grad-CAM, SHAP) et comparer les sorties. Les objectifs clés sont :
+- Support multi-modal obligatoire (audio .wav et images radio thoraciques).
+- Filtrage automatique des modèles et méthodes XAI selon le type de média.
+- Visualisation côte à côte pour analyser plusieurs explications sur un même input.
+- Expérience utilisateur simple (drag-and-drop, sélection guidée) et documentation claire pour la démo.
 
 ## Generative AI Usage Statement
 We used Generative AI (LLM-based assistants) in the following ways for this project:
@@ -25,3 +30,4 @@ All AI-assisted outputs were reviewed and adjusted by the team before inclusion 
 - Pré-requis, installation et lancement (API + frontend).
 - Parcours utilisateur: upload audio/image, sélection modèle, sélection méthodes XAI, visualisation des résultats.
 - Notes de compatibilité (filtres XAI par modalité) et bonnes pratiques d’utilisation.
+
